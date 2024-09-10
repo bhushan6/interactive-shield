@@ -2,8 +2,8 @@ import { Canvas, useThree } from '@react-three/fiber'
 import './App.css'
 import { BakeShadows, CameraControls, TransformControls, useDepthBuffer } from '@react-three/drei'
 import { useControls } from 'leva';
-import { useMemo } from 'react';
-import { DoubleSide, NormalBlending, Vector2 } from 'three';
+import { useEffect, useMemo, useRef } from 'react';
+import { Color, DoubleSide, NormalBlending, ShaderMaterial, Vector2 } from 'three';
 
 
 const vertexShader = `
@@ -26,6 +26,8 @@ uniform sampler2D uDepthTexture;
 uniform vec2 uResolution;
 uniform float uNear;
 uniform float uFar;
+uniform vec3 uShieldColor;
+uniform vec3 uRimColor;
 
 varying vec2 vUv;
 varying vec3 vNormal;
@@ -60,25 +62,31 @@ void main() {
   float difference = abs( sceneDepth - bubbleDepth);
   float threshold = 0.0001;
   float normalizedDistance = clamp(difference / threshold, 0.0, 1.0);
-  vec4 intersection = mix(vec4(1.0), vec4(0.0), normalizedDistance);
-  vec4 color = vec4(1.0, 0.4, 0.2, 0.3);
-  gl_FragColor = color  + intersection + vec4(fresnel);
-  // gl_FragColor = vec4(fresnel, fresnel, fresnel, 1.0);
+  vec4 intersection = mix(vec4(1.0), vec4(0.0), normalizedDistance) ;
+  intersection.rgb *= uRimColor;
+  vec4 color = vec4(uShieldColor, 0.3);
+  gl_FragColor = color + intersection + vec4(uRimColor, 1.0) * fresnel ;
 }
 `;
+
+const rimColorImpl = new Color("#fff");
+const shieldColorImpl = new Color("#f00");
 
 const Shield = () => {
   const db = useDepthBuffer({ size: 1024 });
 
-  const { radius } = useControls({
+  const { radius, rimColor, shieldColor } = useControls({
     radius: {
       value: 3,
       max: 5,
       min: 1,
     },
-    color: {
-      value: "#fff",
+    shieldColor: {
+      value: "#ff0000",
     },
+    rimColor: {
+      value: "#ffffff",
+    }
   });
 
   const size = useThree((state) => state.size);
@@ -99,9 +107,23 @@ const Shield = () => {
       uFar: {
         value: camera.far,
       },
+      uShieldColor: {
+        value: shieldColorImpl.setStyle(shieldColor),
+      },
+      uRimColor: {
+        value: rimColorImpl.setStyle(rimColor),
+      }
     }),
     [db, size, camera]
   );
+
+  const materialRef = useRef<ShaderMaterial>(null!);
+
+  useEffect(() => {
+    
+    materialRef.current.uniforms.uShieldColor.value = shieldColorImpl.setStyle(shieldColor);
+    materialRef.current.uniforms.uRimColor.value = rimColorImpl.setStyle(rimColor);
+  }, [rimColor, shieldColor]);
 
   return (
     <>
@@ -109,6 +131,7 @@ const Shield = () => {
         <mesh position={[0, -0.5, 0]}>
           <sphereGeometry args={[radius, 64, 64]} />
           <shaderMaterial
+            ref={materialRef}
             vertexShader={vertexShader}
             fragmentShader={fragmentShader}
             uniforms={uniforms}
